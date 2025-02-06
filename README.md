@@ -45,7 +45,56 @@ The output will be a series of file names and their contents, representing the s
 
 ## Use Case: LLM Context Building
 
-The primary use case for `bzlctx` is to provide context to LLMs for code-related tasks. For example, if you are using an LLM to generate documentation, debug, or refactor a specific file, you can use `bzlctx` to gather the relevant surrounding code.  This allows the LLM to operate with a more complete understanding of the codebase, leading to more accurate and relevant results.  Instead of just providing the single source file to the LLM, you can provide the output of `bzlctx`, giving the LLM a much richer context.
+The primary use case for `bzlctx` is to provide context to LLMs for code-related tasks. For example, if you are using an LLM to generate documentation, debug, or refactor a specific
+file, you can use `bzlctx` to gather the relevant surrounding code.  This allows the LLM to operate with a more complete understanding of the codebase, leading to more accurate and
+relevant results.  Instead of just providing the single source file to the LLM, you can provide the output of `bzlctx`, giving the LLM a much richer context.
+
+Here is an example of using `bzlctx` to provide context to [llm](https://github.com/simonw/llm/) using a Gemini-Thinking model:
+
+```bash
+~/work/bazelbuild/bazelisk> bzlctx core/repositories.go | llm -m gemini-t 'rewrite the Repo interfaces in rust'
+\`\`\`rust
+use std::error::Error as StdError;
+
+// Define a placeholder for the Error type.
+// You should replace this with your actual error type in your Rust project.
+pub type Error = Box<dyn StdError>;
+
+// Define a placeholder for the Config struct.
+// You should replace this with your actual Config struct in your Rust project.
+pub struct Config;
+
+// FilterOpts represents options relevant to filtering Bazel versions.
+pub struct FilterOpts<'a> {
+    pub max_results: i32,
+    pub track: i32,
+    pub filter: Option<Box<dyn Fn(&str) -> bool + 'a>>, // Option to make filter optional
+}
+
+// LTSRepo represents a repository that stores LTS Bazel releases and their candidates.
+pub trait LtsRepo {
+    // GetLTSVersions returns a list of all available LTS release (candidates) that match the given filter options.
+    // Warning: Filters only work reliably if the versions are processed in descending order!
+    fn get_lts_versions(
+        &self,
+        bazelisk_home: &str,
+        opts: &FilterOpts
+    ) -> Result<Vec<String>, Error>;
+
+    // DownloadLTS downloads the given Bazel version into the specified location and returns the absolute path.
+    fn download_lts(
+        &self,
+        version: &str,
+        dest_dir: &str,
+        dest_file: &str,
+        config: &Config
+    ) -> Result<String, Error>;
+}
+
+// ForkRepo represents a repository that stores a fork of Bazel (releases).
+pub trait ForkRepo {
+...
+```
 
 ## Limitations
 
