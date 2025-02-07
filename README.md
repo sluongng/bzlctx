@@ -1,4 +1,4 @@
-(Disclaimer: 99% of this project was written by an LLM under human supervision.)
+(Disclaimer: 80% of this project was written by an LLM under human supervision.)
 
 # bzlctx
 
@@ -52,49 +52,43 @@ relevant results.  Instead of just providing the single source file to the LLM, 
 Here is an example of using `bzlctx` to provide context to [llm](https://github.com/simonw/llm/) using a Gemini-Thinking model:
 
 ```bash
-~/work/bazelbuild/bazelisk> bzlctx core/repositories.go | llm -m gemini-t 'rewrite the Repo interfaces in rust'
-\`\`\`rust
-use std::error::Error as StdError;
-
-// Define a placeholder for the Error type.
-// You should replace this with your actual error type in your Rust project.
-pub type Error = Box<dyn StdError>;
-
-// Define a placeholder for the Config struct.
-// You should replace this with your actual Config struct in your Rust project.
-pub struct Config;
-
-// FilterOpts represents options relevant to filtering Bazel versions.
-pub struct FilterOpts<'a> {
-    pub max_results: i32,
-    pub track: i32,
-    pub filter: Option<Box<dyn Fn(&str) -> bool + 'a>>, // Option to make filter optional
-}
-
-// LTSRepo represents a repository that stores LTS Bazel releases and their candidates.
-pub trait LtsRepo {
-    // GetLTSVersions returns a list of all available LTS release (candidates) that match the given filter options.
-    // Warning: Filters only work reliably if the versions are processed in descending order!
-    fn get_lts_versions(
-        &self,
-        bazelisk_home: &str,
-        opts: &FilterOpts
-    ) -> Result<Vec<String>, Error>;
-
-    // DownloadLTS downloads the given Bazel version into the specified location and returns the absolute path.
-    fn download_lts(
-        &self,
-        version: &str,
-        dest_dir: &str,
-        dest_file: &str,
-        config: &Config
-    ) -> Result<String, Error>;
-}
-
-// ForkRepo represents a repository that stores a fork of Bazel (releases).
-pub trait ForkRepo {
-...
+~/work/bazelbuild/bazelisk> bzlctx core/repositories.go |\
+  llm -m gemini-t 'rewrite the Repo interfaces in rust'
 ```
+
+The context size could be adjusted using `--limit` flag, which limit the included files by the number of lines of code. For example, to limit the context to 1000 lines:
+
+```bash
+master ~/work/buildbuddy/buildbuddy> bzlctx --limit 100 codesearch/cmd/cli/cli.go | grep '==>'
+==> /Users/sluongng/work/buildbuddy/buildbuddy/codesearch/schema/schema.go <==
+==> /private/var/tmp/_bazel_sluongng/06e573a93bc2d6a9cad4ad41f00b4310/external/com_github_cockroachdb_pebble/logger.go <==
+
+master ~/work/buildbuddy/buildbuddy> bzlctx --limit 2000 codesearch/cmd/cli/cli.go | grep '==>'
+==> /Users/sluongng/work/buildbuddy/buildbuddy/codesearch/cmd/cli/cli.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/codesearch/index/index.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/codesearch/performance/performance.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/codesearch/query/regexp_query.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/codesearch/schema/schema.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/codesearch/searcher/searcher.go <==
+==> /private/var/tmp/_bazel_sluongng/06e573a93bc2d6a9cad4ad41f00b4310/external/com_github_cockroachdb_pebble/cache.go <==
+==> /private/var/tmp/_bazel_sluongng/06e573a93bc2d6a9cad4ad41f00b4310/external/com_github_cockroachdb_pebble/comparer.go <==
+==> /private/var/tmp/_bazel_sluongng/06e573a93bc2d6a9cad4ad41f00b4310/external/com_github_cockroachdb_pebble/logger.go <==
+```
+
+In cases a target has a lot of dependent source files, we sort the files by their distance to the target file.  The closest files are printed first. For example:
+
+```bash
+master ~/work/buildbuddy/buildbuddy> bzlctx --limit 2000 cli/login/login.go | grep '==>'
+==> /Users/sluongng/work/buildbuddy/buildbuddy/cli/login/login.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/cli/arg/arg.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/cli/log/log.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/cli/storage/storage.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/server/util/grpc_client/grpc_client.go <==
+==> /Users/sluongng/work/buildbuddy/buildbuddy/server/util/status/status.go <==
+==> /private/var/tmp/_bazel_sluongng/06e573a93bc2d6a9cad4ad41f00b4310/external/org_golang_google_grpc/metadata/metadata.go <==
+```
+
+the given file was `cli/login/login.go`, and the closest files are `cli/arg/arg.go`, `cli/log/log.go`, `cli/storage/storage.go`, which are listed first. The further files are `server/util/grpc_client/grpc_client.go`, `server/util/status/status.go` are listed after.
 
 ## Limitations
 

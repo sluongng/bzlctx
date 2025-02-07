@@ -23,38 +23,29 @@ fn run_command(command: &str, args: &[&str]) -> Result<String, String> {
         .map_err(|e| format!("Failed to execute {}: {}", command, e))?;
     if !output.status.success() {
         return Err(format!(
-            "Command {} failed: {}",
+            "Command {} {:?} failed: {}",
             command,
+            args,
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// For a given source file, runs:
-///     bazel query '<source_file>' --output=package
-/// and returns the Bazel package (trimmed).
-fn get_bazel_package(source_file: &str) -> Result<String, String> {
-    let output = run_command("bazel", &["query", source_file, "--output=package"])?;
-    Ok(output.trim().to_string())
+/// Finds all targets that depend on the given source file.
+fn find_rdeps(package: String, source_file: &str, depth: usize) -> Result<Vec<String>, String> {
+    let depth_str = match depth > 0 {
+        true => format!(", {}", depth),
+        false => "".to_string(),
+    };
+    let query = format!("kind(rule, rdeps({}:all, {}{}))", package, source_file, depth_str);
+    let output = run_command("bazel", &["query", &query, "--output=label"])?;
+    Ok(output.lines().map(String::from).collect())
 }
 
-/// Runs a query to get the source files within the given Bazel package:
-///
-///   bazel query 'kind("source file", {pkg})' --output=location
-fn get_source_files_in_package(bazel_pkg: &str) -> Result<Vec<String>, String> {
-    let query = format!(r#"kind("source file", {pkg})"#, pkg = bazel_pkg);
-    let output = run_command("bazel", &["query", &query, "--output=location"])?;
-    parse_bazel_output(output)
-}
-
-/// Runs a dependency query using the given Bazel package:
-///
-///   bazel query 'kind("source file", deps({pkg}, 2))' --output=location
-///
-/// It then parses the output to extract the file paths.
-fn get_dependent_source_files(bazel_pkg: &str) -> Result<Vec<String>, String> {
-    let query = format!(r#"kind("source file", deps({pkg}, 2))"#, pkg = bazel_pkg);
+/// Gets the dependent source files for a given target.
+fn get_dependent_source_files(target: &str, depth: usize) -> Result<Vec<String>, String> {
+    let query = format!(r#"kind("source file", deps({}, {}))"#, target, depth);
     let output = run_command("bazel", &["query", &query, "--output=location"])?;
     parse_bazel_output(output)
 }
@@ -118,37 +109,62 @@ fn print_file_with_content(file_path: &str, line_limit: usize, lines_printed: us
     }
 }
 
+fn find_package(source_file: &str) -> Result<String, String> {
+    let output = run_command("bazel", &["query", source_file, "--output=package"])?;
+    Ok(output)
+}
+
+/// Computes the “distance” between two paths as the number of steps needed
+/// to get from one to the other.
+fn path_distance(a: &Path, b: &Path) -> usize {
+    // Collect the components of each path.
+    let a_components: Vec<_> = a.components().collect();
+    let b_components: Vec<_> = b.components().collect();
+
+    // Count how many components are common starting from the beginning.
+    let common_components = a_components
+        .iter()
+        .zip(b_components.iter())
+        .take_while(|(a_comp, b_comp)| a_comp == b_comp)
+        .count();
+
+    // The distance is the number of remaining components in both paths.
+    (a_components.len() - common_components) + (b_components.len() - common_components)
+}
+
 fn main() -> Result<(), String> {
     let args = Args::parse();
     let source_file = &args.source_file;
+    let source_file_path = Path::new(source_file);
+
     let line_limit = args.limit;
-
-    // Determine the Bazel package for the given source file.
-    let bazel_pkg = get_bazel_package(source_file)?;
-
-    // Get the source files directly in the package.
-    let package_files = get_source_files_in_package(&bazel_pkg)?;
-
-    // Get the dependent source files.
-    let dependent_files = get_dependent_source_files(&bazel_pkg)?;
-
     let mut lines_printed = 0;
 
-    // Print files in the main package first.
-    for file in package_files.iter() {
-        lines_printed += print_file_with_content(file, line_limit, lines_printed);
+    let package = find_package(source_file)?;
+    let main_targets = find_rdeps(package, source_file, 1)?;
+    let main_target = main_targets
+        .first()
+        .ok_or(format!("no main target found for file {}", source_file))?;
+
+    let mut target_files = get_dependent_source_files(&main_target, 1)?;
+    target_files.sort_by_key(|file| path_distance(&source_file_path, &Path::new(file)));
+    for file in target_files.clone() {
+        lines_printed += print_file_with_content(&file, line_limit, lines_printed);
         if lines_printed >= line_limit {
-            break; // Stop if limit is reached
+            return Ok(()); // Stop if limit is reached
         }
     }
 
-    // Then print dependent files, skipping duplicates.
-    for file in dependent_files {
-        if !package_files.contains(&file) {
-            lines_printed += print_file_with_content(&file, line_limit, lines_printed);
-            if lines_printed >= line_limit {
-                break; // Stop if limit is reached
-            }
+    let mut dep_files = get_dependent_source_files(main_target, 2)?;
+    dep_files.sort_by_key(|file| path_distance(&source_file_path, &Path::new(file)));
+    for file in dep_files {
+        if target_files.contains(&file) {
+            // Skip files that were already printed
+            continue;
+        }
+        lines_printed += print_file_with_content(&file, line_limit, lines_printed);
+        if lines_printed >= line_limit {
+            return Ok(()); // Stop if limit is reached
         }
     }
 
