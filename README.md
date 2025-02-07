@@ -1,8 +1,11 @@
 (Disclaimer: 80% of this project was written by an LLM under human supervision.)
 
+[A blog Post about this project](https://sluongng.substack.com/p/bazel-context-for-llms).
+
 # bzlctx
 
 `bzlctx` is a command-line tool that leverages Bazel's dependency graph to retrieve the source code of files related to a given input file. This can be particularly useful for providing context to Large Language Models (LLMs) when working with codebases managed by Bazel. By understanding the dependencies of a specific file, an LLM can gain a broader understanding of the code's purpose and functionality.
+
 
 ## How it Works
 
