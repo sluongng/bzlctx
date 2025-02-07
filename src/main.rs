@@ -158,10 +158,7 @@ fn main() -> Result<()> {
 
     // Filter by extension if requested and if the source file has an extension
     if let (true, Some(source_ext)) = (args.filter_by_ext, get_extension(&source_file_path)) {
-        dep_files = dep_files
-            .into_iter()
-            .filter(|file| get_extension(file) == Some(source_ext.clone()))
-            .collect();
+        dep_files.retain(|file| get_extension(file) == Some(source_ext.clone()));
     }
 
     for file in dep_files {
