@@ -14,7 +14,7 @@ struct Args {
     source_file: String,
 
     /// The maximum number of lines to print.
-    #[arg(long, short, default_value_t = usize::MAX)]
+    #[arg(long, short, default_value_t = 2000)]
     limit: usize,
 
     /// The dependency depth.
@@ -22,8 +22,12 @@ struct Args {
     depth: usize,
 
     /// Filter by the extension of the input file.
-    #[arg(long, short, default_value_t = true)]
-    filter_by_ext: bool,
+    #[arg(long, short, value_delimiter = ',')]
+    include_file_types: Option<Vec<String>>,
+
+    /// List of files to always include.
+    #[arg(long, short, value_delimiter = ',')]
+    always_include: Option<Vec<String>>,
 }
 
 /// Runs an external command and returns its stdout as a String.
@@ -79,7 +83,8 @@ fn print_file_content(
 
     let file_lines = fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read file: {}", file_path.display()))?
-        .lines().count();
+        .lines()
+        .count();
     let remaining_lines = line_limit - *lines_printed;
 
     if remaining_lines >= file_lines {
@@ -151,15 +156,41 @@ fn main() -> Result<()> {
     let mut lines_printed = 0;
     let mut printed_files = HashSet::new();
 
+    // Always include files, print them first
+    if let Some(always_include) = &args.always_include {
+        for file_path_str in always_include {
+            let file_path = PathBuf::from(file_path_str);
+            if printed_files.contains(&file_path) {
+                continue;
+            }
+            print_file_content(&file_path, args.limit, &mut lines_printed)?;
+            printed_files.insert(file_path);
+            if lines_printed >= args.limit {
+                return Ok(());
+            }
+        }
+    }
+
     let package = find_package(&args.source_file)?;
     let mut dep_files = get_dependent_source_files(&package, &args.source_file, args.depth)?;
 
     dep_files.sort_by_key(|file| path_distance(&source_file_path, file).unwrap_or(usize::MAX));
 
-    // Filter by extension if requested and if the source file has an extension
-    if let (true, Some(source_ext)) = (args.filter_by_ext, get_extension(&source_file_path)) {
-        dep_files.retain(|file| get_extension(file) == Some(source_ext.clone()));
+    let mut included_extensions = args
+        .include_file_types
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<HashSet<_>>();
+    if let Some(source_file_ext) = get_extension(&source_file_path) {
+        included_extensions.insert(source_file_ext.clone());
     }
+    dep_files.retain(|dep_file| {
+        if let Some(dep_file_ext) = get_extension(dep_file) {
+            included_extensions.contains(&dep_file_ext)
+        } else {
+            false
+        }
+    });
 
     for file in dep_files {
         if printed_files.contains(&file) {
